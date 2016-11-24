@@ -1,0 +1,120 @@
+#!/bin/bash
+
+IFS=$'\n';
+
+##
+# Normal terminal color.
+#
+# @var string
+##
+readonly -- COLOR_NORMAL='\e[0m';
+
+##
+# Info terminal color.
+#
+# @var string
+##
+readonly -- COLOR_INFO='\e[96m';
+
+##
+# Success terminal color.
+#
+# @var string
+##
+readonly -- COLOR_SUCCESS='\e[92m';
+
+##
+# Error terminal color.
+#
+# @var string
+##
+readonly -- COLOR_ERROR='\e[91m';
+
+##
+# Read user input.
+#
+# @param string text
+# @param string default
+#
+# @return string
+##
+function readInput()
+{
+    local -- text="${1?Missing argument 1 for readInput()}";
+    local -- default=${2};
+    local -- answer;
+
+    if [ ! -z "${default}" ]; then
+        text="${text} [${default}]";
+    fi
+
+    read -p "${text}: " answer;
+    answer=${answer:-${default}};
+
+    if [ -z "${answer}" ]; then
+        readInput "${1}" "${2}";
+    else 
+        echo "${answer}";
+    fi
+}
+
+##
+# Output error text.
+#
+# @param string text
+##
+function outputError()
+{
+    local -- text="${1?Missing argument 1 for outputError()}";
+
+    echo -e "${COLOR_ERROR}${text}${COLOR_NORMAL}\n";
+}
+
+##
+# Output success text.
+#
+# @param string text
+##
+function outputSuccess()
+{
+    local -- text="${1?Missing argument 1 for outputSuccess()}";
+
+    echo -e "${COLOR_SUCCESS}${text}${COLOR_NORMAL}\n";
+}
+
+##
+# Output info text.
+#
+# @param string text
+##
+function outputInfo()
+{
+    local -- text="${1?Missing argument 1 for outputInfo()}";
+
+    echo -e "${COLOR_INFO}${text}${COLOR_NORMAL}";
+}
+
+##
+# Read .ini config file.
+#
+# @param string iniFile
+##
+function readConfig()
+{
+    if [ ! -f "${SCRIPT_DIR}/config.ini" ]; then
+        outputError "[Error] No config.ini found.";
+        exit 1;
+    fi
+
+    source "${SCRIPT_DIR}/parsers/ParserIni";
+ 
+    ParseIni "${SCRIPT_DIR}/config.ini" "jira";
+    
+    if [ -z ${url} ]; then
+        outputError "[Error] No Jira URL set in config.ini.";
+        exit 1;
+    fi
+    
+    config[url]=${url};
+    config[user]=${user};
+}

@@ -1,0 +1,279 @@
+#!/bin/bash
+
+##
+# With this script you can automaticaly create subtasks for a given JIRA story.
+##
+function JiraCreateTasks()
+{
+    ##
+    # Script directory.
+    #
+    # @var string
+    ##
+    readonly -- SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
+
+    ##
+    # JSON API payload.
+    #
+    # @var string
+    ##
+    readonly -- API_PAYLOAD='{"fields":{"project":{"key":"%PK%"},"parent":{"key":"%PARENTSTORY%"},"summary":"%SUMMARY%","description":"%DESCRIPTION%","issuetype":{"id":"%ISSUETYPE%"}}}';
+    
+    ##
+    # Store configuration if config file is present.
+    #
+    # @var array
+    ##
+    local -A config;
+
+    ##
+    # JSON payload for changing assignee.
+    #
+    # @var string
+    ##
+    local -- jiraUrl='%JIRA_URL%/rest/api/2/issue/';
+    
+    ##
+    # File with list of default subtasks to create.
+    #
+    # @var array
+    ##
+    readonly -- DEFAULT_NORMAL_TASKS="taskset_default.txt";
+    
+    ##
+    # File with list of default subtasks for a bug to create.
+    #
+    # @var array
+    ##
+    readonly -- DEFAULT_BUG_TASKS="taskset_bug.txt";
+    
+    ##
+    # Main method.
+    ##
+    function main()
+    {
+        local -A apiOptions;
+        local -A payloadOptions;
+        local -- taskSetId;
+        local -- singleTask;
+        local -- fileWithTaskSet;
+        
+        outputInfo "\nCreate JIRA Subtasks script.";
+        
+        readConfig;
+        jiraUrl=${jiraUrl//%JIRA_URL%/${config[url]}};
+        
+        getOptions "$@";
+                
+        if [ ! -z "${singleTask}" ]; then
+            createOneTask;
+        else
+            createTasks;
+        fi
+        
+        outputSuccess "[Done] Check story ${payloadOptions[storyNumber]} to see your subtasks.";
+    }
+
+    ##
+    # Get options, either non-positional or user entered.
+    ##
+    function getOptions()
+    {
+        apiOptions[userName]=`whoami`;
+        if [ ! -z "${config[user]}" ]; then
+            apiOptions[userName]=${config[user]};
+        fi
+    
+        if [ $# -eq 0 ]; then
+            manualEntries;
+        fi
+    
+        while getopts ":u:s:k:t:o:f:p:h" opt; do
+            case $opt in
+                h)
+                    outputUsage;
+                ;;
+                s)
+                    payloadOptions[storyNumber]="${OPTARG}";
+                ;;
+                k)
+                    payloadOptions[projectKey]="${OPTARG}";
+                ;;
+                u)
+                    apiOptions[userName]="${OPTARG}";
+                ;;
+                p)
+                    apiOptions[password]="${OPTARG}";
+                ;;
+                o)
+                    singleTask="${OPTARG}";
+                ;;
+                f)
+                    fileWithTaskSet="${OPTARG}";
+                ;;
+            esac
+        done
+        
+        if [ -z ${payloadOptions[projectKey]} ]; then
+            payloadOptions[projectKey]=$(echo "${payloadOptions[storyNumber]}" | sed 's/-.*//')
+        fi
+        
+        if [ -z ${payloadOptions[storyNumber]} ]; then
+            outputError "No storynumber given.";
+            exit 1;
+        fi
+        
+        if [ ! -z "${fileWithTaskSet}" ]; then
+            if [ ! -f "${fileWithTaskSet}" ]; then
+                outputError "Invalid file with tasks given.";
+                exit 1;
+            fi
+        
+            # Replace carriage returns in given file.
+            sed -i 's/\r//g' "${fileWithTaskSet}";
+        fi
+
+        if [ -z ${apiOptions[password]} ]; then
+            read -sp "Enter Password for ${apiOptions[userName]}: " apiOptions[password];
+            echo;
+        fi
+    }
+
+    ##
+    # User manually enters options.
+    ##
+    function manualEntries()
+    {
+        local -- defaultProjectKey;
+    
+        payloadOptions[storyNumber]=$(readInput "Jira Story Number");
+        defaultProjectKey=$(echo "${payloadOptions[storyNumber]}" | sed 's/-.*//');
+        payloadOptions[projectKey]=$(readInput "Jira Project Key" ${defaultProjectKey});
+        apiOptions[userName]=$(readInput "Jira Username" ${apiOptions[userName]});
+    }
+
+    ##
+    # Create one task for a parent story.
+    ##
+    function createOneTask()
+    {
+        local -a tasksToBeCreated;
+    
+        tasksToBeCreated=("${singleTask}");
+        apiCall;
+    }
+
+    ##
+    # Create tasks for a parent story, determine which ones.
+    ##
+    function createTasks()
+    {
+        local -- apiPayload;
+        local -- takeWith;
+        local -a taskSet;
+        local -a tasksToBeCreated;
+        local -- whichTaskSet;
+
+        if [ -z "${taskSetId}" ]; then
+        
+            if [ -z "${fileWithTaskSet}" ]; then
+                chooseTaskSet;
+            else
+                readarray taskSet < "${fileWithTaskSet}";
+            fi
+
+            outputInfo "\nIndicate which tasks you want to create: [y/n]";
+
+            for task in ${taskSet[@]}; do
+                takeWith=$(readInput "${task}" "y");
+                if [ "${takeWith}" = "y" ]; then
+                    tasksToBeCreated=("${tasksToBeCreated[@]}" "${task}");
+                fi
+            done
+            echo;
+        else
+            whichTaskSet=${taskSetId};
+            setTaskSet;
+            tasksToBeCreated=("${taskSet[@]}")
+        fi
+
+        outputInfo "Creating subtasks...\n";
+
+        apiCall;
+    }
+
+    ##
+    # Manually choose a storyset.
+    ##
+    function chooseTaskSet()
+    {
+        fileWithTaskSet=$(readInput "Which taskset do you want to create?");
+
+        if [ ! -f "${fileWithTaskSet}" ]; then
+            outputError "Enter a valid file with a set of tasks.";
+            chooseTaskSet;
+        else
+            readarray taskSet < "${fileWithTaskSet}";
+        fi
+
+    }
+
+    ##
+    # Set payload, find replace placeholders in JSON.
+    ##
+    function apiCall()
+    {
+        for task in "${tasksToBeCreated[@]}"; do
+            apiPayload=${API_PAYLOAD};
+            apiPayload=${apiPayload//%PK%/${payloadOptions[projectKey]}};
+            apiPayload=${apiPayload//%PARENTSTORY%/${payloadOptions[storyNumber]}};
+            apiPayload=${apiPayload//%SUMMARY%/${task}};
+            apiPayload=${apiPayload//%DESCRIPTION%/${task}};
+            apiPayload=${apiPayload//%ISSUETYPE%/5};
+
+            eval curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -X POST --data \'${apiPayload}\' -H \"Content-Type: application/json\" \"${jiraUrl}\" > /dev/null 2>&1;
+        done
+    }
+    
+    ##
+    # Display usage/helptext.
+    ##
+    function outputUsage()
+    {
+        cat << EOF
+Usage: ${0} [options]
+    -h This help text
+    -s Storynumber
+    -u Jira Username, If not given, script will take current username.
+    -p Jira Password, If not given, script will ask.
+    -k Projectkey, Key before - (dash) in Storynumber. If not given, script guesses.
+    
+   Route 1:    
+    -t Taskset, enter the filename of a set of stories.
+    
+   Route 2:
+    -f File with a taskset, File within your current directory with defined tasks, one task per line.
+    
+   Route 3:    
+    -o One subtask, give summary and create only one subtask.
+
+Example:
+    $ ${0} -s TB-1111 -k TB -u your.username -t 2
+    $ ${0} -s TB-1234 -o "One new subtask"
+    
+* If you do not provide any arguments, the script will be interactive. 
+* The tasksets are default and determined by the Scrum-masters.
+* If you incorrectly enter your password twice, you manually have to login into Jira again! 
+
+^ Thanks. BowlOfSoup.
+        
+EOF
+
+        exit 0;
+    }
+
+    source "${SCRIPT_DIR}/helpers/service";
+    main "$@";
+}
+
+JiraCreateTasks "$@"

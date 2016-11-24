@@ -1,0 +1,437 @@
+#!/bin/bash
+
+##
+# With this script you can move a subtask for a given JIRA story.
+##
+function JiraEditTask()
+{
+    ##
+    # Script directory.
+    #
+    # @var string
+    ##
+    readonly -- SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
+
+    ##
+    # JSON payload for transitioning.
+    #
+    # @var string
+    ##
+    readonly -- API_PAYLOAD_TRANSITION='{"transition":{"id":"%TRANSITION%"}}';
+    
+    ##
+    # JSON payload for changing assignee.
+    #
+    # @var string
+    ##
+    readonly -- API_PAYLOAD_ASSIGN='{"name":"%USERNAME%"}';
+
+    ##
+    # JSON payload for adding a comment.
+    #
+    # @var string
+    ##
+    readonly -- API_PAYLOAD_COMMENT_ADD='{"body":"%COMMENT%"}';
+
+    ##
+    # Store configuration if config file is present.
+    #
+    # @var array
+    ##
+    local -A config;
+
+    ##
+    # JSON payload for changing assignee.
+    #
+    # @var string
+    ##
+    local -- jiraUrl='%JIRA_URL%/rest/api/2/issue/';
+
+    ##
+    # Main method.
+    ##
+    function main()
+    {
+        local -A apiOptions;
+        local -A payloadOptions;
+        local -A subtasks;
+        local -A transitions;
+        local -- action;
+        local -- subTaskToUse;
+
+        outputInfo "\nEdit JIRA Subtasks script.";
+        
+        readConfig;
+        jiraUrl=${jiraUrl//%JIRA_URL%/${config[url]}};
+        
+        getOptions "$@";
+        
+        getStorySubtasks;
+        
+        if [ ! -z "${action}" ]; then
+            echo -e "";
+            subTaskToUse=$(readSubtask);
+        fi
+        
+        if [ "${action}" = "assign" ]; then
+            doAssign;
+            outputSuccess "\n[Done] Assigning ${payloadOptions[storyNumber]}/${subTaskToUse} to ${apiOptions[userName]}.";
+        fi
+        
+        if [ "${action}" = "transition" ]; then
+            doTransition;
+            doAssign;
+            outputSuccess "\n[Done] Transitioning ${payloadOptions[storyNumber]}/${subTaskToUse}.";
+        fi
+        
+        if [ "${action}" = "comment" ]; then
+            doComment;
+            outputSuccess "\n[Done] Comment made on ${payloadOptions[storyNumber]}/${subTaskToUse}.";
+        fi
+        
+        if [ -z "${action}" ]; then
+            echo;
+        fi
+    }
+
+    ##
+    # Get options, either non-positional or user entered.
+    ##
+    function getOptions()
+    {
+        local -- argument;
+    
+        apiOptions[userName]=`whoami`;
+        if [ ! -z "${config[user]}" ]; then
+            apiOptions[userName]=${config[user]};
+        fi
+    
+        if [ $# -eq 0 ]; then
+            manualEntries;
+        fi
+    
+        while getopts "u:p:s: :t :a :c :h" opt; do
+            case $opt in
+                h)
+                    outputUsage;
+                ;;
+                s)
+                    payloadOptions[storyNumber]="${OPTARG}";
+                ;;
+                t)
+                    action="transition";
+                ;;
+                a)
+                    action="assign";
+                ;;
+                c)
+                    action="comment";  
+                ;;                
+                u)
+                    apiOptions[userName]="${OPTARG}";
+                ;;
+                p)
+                    apiOptions[password]="${OPTARG}";
+                ;;
+            esac
+        done
+        
+        if [ -z ${payloadOptions[storyNumber]} ]; then
+            outputError "No storynumber given.";
+            exit 1;
+        fi
+        
+        getPassword;
+    }
+
+    ##
+    # User manually enters options.
+    ##
+    function manualEntries()
+    {
+        payloadOptions[storyNumber]=$(readInput "Jira Story Number");
+        apiOptions[userName]=$(readInput "Jira Username" ${apiOptions[userName]});
+    }
+
+    ##
+    # Get all the subtasks of the given story.
+    ##
+    function getStorySubtasks()
+    {
+        local -A parsedIds;
+        local -A parsedSummaries;
+        local -A parsedStatusses;
+        local -- parentStorySummary;
+        local -- parentStoryStatus;
+        local -- parentStorySummaryKey;
+        local -- parentStoryStatusKey;
+        local -- subTaskId;
+        local -- subTaskSummary;
+        local -- subTaskStatus;
+    
+        response=$(curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -s -H "Accept: application/json" "${jiraUrl}${payloadOptions[storyNumber]}");
+        
+        if [[ "${response}" == *"Forbidden"* ]]; then
+            outputError "\nWrong password given!";
+            exit 1;
+        fi
+        
+        # Remove Cookie header from response
+        cutResponse="{"$(echo ${response} | sed 's/.* {//');
+        # Parse response with third-party
+        processedResponse=($(echo ${cutResponse} | "${SCRIPT_DIR}/parsers/ParserJson" -b));
+        # This will always skip the first 50, since we don't need them anyway.
+        processedResponse=("${processedResponse[@]:60}");
+    
+        for line in ${processedResponse[@]}; do
+        
+            keyParent=$(echo ${line} | cut -d] -f1);
+            key=$(echo ${line} | cut -d] -f1 | cut -d[ -f2);
+            
+            if [ ! -z "$(echo ${key} | grep -F '"fields","reporter","self"')" ]; then
+                break;
+            fi
+            
+            # Get story information
+            if [ -z "${parentStorySummary}" ]; then
+                parentStorySummaryKey=$(echo ${keyParent} | grep -F '["fields","summary"');
+                if [ "${parentStorySummaryKey}" ]; then
+                    parentStorySummary=$(echo ${line} | cut -d'"' -f6);
+                    continue;
+                fi
+            fi
+            
+            if [ -z "${parentStoryStatus}" ]; then
+                parentStoryStatusKey=$(echo ${keyParent} | grep -F '["fields","status","name"');
+                if [ "${parentStoryStatusKey}" ]; then
+                    parentStoryStatus=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2);
+                    continue;
+                fi
+            fi
+            
+            # Get subtask information
+            subTaskId=$(echo ${key} | grep '\"subtasks\",[0-9]*,\"key\"');
+            if [ "${subTaskId}" ]; then
+                parsedIds[$(echo ${key} | cut -d, -f3)]=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2);
+                continue;
+            fi
+            
+            subTaskSummary=$(echo ${key} | grep '\"subtasks\",[0-9]*,\"fields\",\"summary\"');
+            if  [ "${subTaskSummary}" ]; then
+                parsedSummaries[$(echo ${key} | cut -d, -f3)]=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2);
+                continue;
+            fi
+            
+            subTaskStatus=$(echo ${key} | grep '\"subtasks\",[0-9]*,\"fields\",\"status\",\"name\"');
+            if  [ "${subTaskStatus}" ]; then
+                parsedStatusses[$(echo ${key} | cut -d, -f3)]=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2);
+                continue;
+            fi
+        done
+
+        # Match up
+        for i in "${!parsedIds[@]}"; do
+            subtasks[${parsedIds[$i]}]="${parsedSummaries[$i]} \e[95m[${parsedStatusses[$i]}]\e[0m";
+        done
+        
+        outputInfo "\nCurrent subtasks for ${payloadOptions[storyNumber]}:";
+        
+        # Output parent information
+        echo -e "\e[1m\e[33m${payloadOptions[storyNumber]}\e[0m - ${parentStorySummary} \e[95m[${parentStoryStatus}]\e[0m\n";
+        
+        # Output subtask information
+        for subtaskId in "${!subtasks[@]}"; do
+          echo -e "\e[1m\e[97m$subtaskId\e[0m - ${subtasks[$subtaskId]}";
+        done
+        
+        # Add parent story.
+        subtasks[${payloadOptions[storyNumber]}]="";
+    }
+
+    ##
+    # Get password, if not given trough option.
+    ##
+    function getPassword()
+    {
+        if [ -z ${apiOptions[password]} ]; then
+            read -sp "Enter Password for ${apiOptions[userName]}: " apiOptions[password];
+            echo;
+        fi
+    }
+
+    ##
+    # Get all transitions possible for entered subtask.
+    ##
+    function getTransitions()
+    {
+        local -A parsedIds;
+        local -A parsedNames;
+    
+        getPassword;
+    
+        response=$(curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -s -H "Accept: application/json" "${jiraUrl}${subTaskToUse}/transitions?expand=transitions.fields");
+        # Remove Cookie header from response
+        cutResponse="{"$(echo ${response} | sed 's/.* {//');
+        # Parse response with third-party
+        processedResponse=($(echo ${cutResponse} | "${SCRIPT_DIR}/parsers/ParserJson" -b));
+        
+        # Put transition ID and Name in seperate arrays
+        for line in ${processedResponse[@]}; do
+        
+            key=$(echo ${line} | cut -d] -f1 | cut -d[ -f2);
+            
+            matchId=$(echo ${key} | grep '\"transitions\",[0-9],\"id\"');
+            if [ "${matchId}" ]; then
+                parsedIds[$(echo ${key} | cut -d, -f2)]=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2);
+                continue;
+            fi
+            
+            matchName=$(echo ${key} | grep '\"transitions\",[0-9],\"name\"');
+            if  [ "${matchName}" ]; then
+                parsedNames[$(echo ${key} | cut -d, -f2)]=$(echo ${line} | cut -d] -f2 | cut -d'"' -f2); 
+                continue;
+            fi
+        done
+
+        # Match up ID and Name into one array.
+        for i in "${!parsedNames[@]}"; do
+            transitions[${parsedIds[$i]}]=${parsedNames[$i]};
+        done
+    }
+    
+    ##
+    # Action to transition a subtask.
+    ##
+    function doTransition()
+    {
+        local -- transitionToUse;
+        local -- apiPayload;
+            
+        if [ ! -z ${subTaskToUse} ]; then
+        
+            getTransitions;
+            
+            outputInfo "\nThe following transitions can be used for ${subTaskToUse}:";   
+    
+            for transitionId in "${!transitions[@]}"; do
+                echo "$transitionId: ${transitions["$transitionId"]}"
+            done | sort -n -k3
+
+            echo;
+            transitionToUse=$(readTransition);
+            
+            apiPayloadTransition=${API_PAYLOAD_TRANSITION};
+            apiPayloadTransition=${apiPayloadTransition//%TRANSITION%/${transitionToUse}};
+            eval curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -X POST --data '${apiPayloadTransition}' -H \"Content-Type: application/json\" \"${jiraUrl}${subTaskToUse}/transitions\" > /dev/null 2>&1;
+        fi
+    }
+    
+    ##
+    # Action to assign a subtask to a user.
+    ##
+    function doAssign()
+    {
+        if [ ! -z ${subTaskToUse} ]; then
+            apiPayloadAssign=${API_PAYLOAD_ASSIGN};
+            apiPayloadAssign=${apiPayloadAssign//%USERNAME%/${apiOptions[userName]}};
+            eval curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -X PUT --data '${apiPayloadAssign}' -H \"Content-Type: application/json\" \"${jiraUrl}${subTaskToUse}/assignee\" > /dev/null 2>&1;
+        fi
+    }
+
+    ##
+    # Add a comment to a subtask.
+    ##
+    function doComment()
+    {
+        if [ ! -z ${subTaskToUse} ]; then
+        
+            echo;
+            payloadOptions[comment]=$(readComment);
+        
+            apiPayloadComment=${API_PAYLOAD_COMMENT_ADD};
+            apiPayloadComment=${apiPayloadComment//%COMMENT%/${payloadOptions[comment]}};
+            eval curl -D- -u ${apiOptions[userName]}:${apiOptions[password]} -X POST --data '${apiPayloadComment}' -H \"Content-Type: application/json\" \"${jiraUrl}${subTaskToUse}/comment\" > /dev/null 2>&1;
+        fi
+    }
+    
+    ##
+    # Get user input on subtask to use.
+    ##
+    function readSubtask()
+    {
+        local -- projectKey=$(echo "${payloadOptions[storyNumber]}" | cut -d- -f1);
+        local -- subtask;
+    
+        subTaskToUse=$(readInput "Subtask to use");
+
+        if [[ "${subTaskToUse}" == *"${projectKey}"* ]]; then
+            subtask=${subTaskToUse};
+        else
+            subtask="${projectKey}-${subTaskToUse}";
+        fi
+        
+        if [ ! "${subtasks[${subtask}]+1}" = "1" ]; then
+            readSubtask;
+        else
+            echo "${subtask}";
+        fi
+    }
+
+    ##
+    # Get user input on transition to use for subtask.
+    ##
+    function readTransition()
+    {
+        transitionToUse=$(readInput "Transition ${subTaskToUse} to");
+        
+        if [ ! "${transitions[${transitionToUse}]+1}" = "1" ]; then
+            readTransition;
+        else
+            echo "${transitionToUse}";
+        fi
+    }
+
+    ##
+    # Get user input on comment to be added to a subtask.
+    ##
+    function readComment()
+    {
+        local -- commentToUse;
+    
+        commentToUse=$(readInput "Comment for ${subTaskToUse}");
+        
+        echo "${commentToUse}";
+    }
+    
+    ##
+    # Display usage/helptext.
+    ##
+    function outputUsage()
+    {
+        cat << EOF
+Usage: ${0} [options]
+    -h This help text
+    -s Storynumber
+    -u Jira Username, If not given, script will take current username.
+    -p Jira Password, If not given, script will ask.
+    
+   Actions:    
+    -t Transition a subtask trough the workflow.
+    -a Assign a subtask to the given username (or current logged-in user).
+    -c Add a comment on a subtask.
+
+* If you do not provide any arguments, the script will be interactive. 
+* If you incorrectly enter your password twice, you manually have to login into Jira again! 
+
+^ Thanks. BowlOfSoup.
+        
+EOF
+
+        exit 0;
+    }    
+    
+    source "${SCRIPT_DIR}/helpers/service";
+    main "$@";
+}
+
+JiraEditTask "$@"

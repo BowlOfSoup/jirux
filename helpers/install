@@ -1,0 +1,86 @@
+#!/bin/bash
+
+##
+# Install the Jirux suite.
+##
+function JiruxInstall()
+{
+    ##
+    # Script directory.
+    #
+    # @var string
+    ##
+    readonly -- SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
+
+    ##
+    # Jirux directory.
+    #
+    # @var string
+    ##
+    readonly -- JIRUX_DIR="if [[ -d $(dirname ${SCRIPT_DIR}) ]]; then export PATH=\$PATH:$(dirname ${SCRIPT_DIR}); fi";
+
+    ##
+    # Main function.
+    ##
+    function main()
+    {
+    
+        getOptions "$@";
+        
+        install;
+    }
+
+    ##
+    # Get options.
+    ##
+    function getOptions()
+    {
+    
+        while getopts ":h" opt; do
+            case $opt in
+                h)
+                    outputUsage;
+                ;;
+            esac
+        done
+    }
+
+    ##
+    # Install Jirux suite by adding the script dir to the $PATH.
+    ##
+    function install()
+    {
+        includeLine=$(grep -Fxq "${JIRUX_DIR}" ~/.bash_profile);
+    
+        if [ "$?" -eq "1" ]; then
+            echo "${JIRUX_DIR}" >> ~/.bash_profile;
+            
+            outputSuccess "Jirux installed. Use Jirux commands anywhere.";
+            source ~/.bash-profile
+        else
+            outputError "Jirux already installed.";
+        fi
+    }
+
+    ##
+    # Display usage/helptext.
+    ##
+    function outputUsage()
+    {
+        cat << EOF
+        
+Usage: ${0} [options]
+    -h This help text
+        
+Run this installation script and make the Jirux scripts available from anywhere.
+        
+EOF
+
+        exit 0;
+    }
+
+    source "${SCRIPT_DIR}/service";
+    main "$@";
+}
+
+JiruxInstall "$@"

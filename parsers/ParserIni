@@ -1,0 +1,18 @@
+#!/bin/bash
+
+##
+# Simple ini file parser.
+##
+function ParseIni()
+{
+    local -- iniFile="${1}"
+    local -- iniSection="${2}"
+
+    eval `sed -e 's/[[:space:]]*\=[[:space:]]*/=/g' \
+    -e 's/;.*$//' \
+    -e 's/[[:space:]]*$//' \
+    -e 's/^[[:space:]]*//' \
+    -e "s/^\(.*\)=\([^\"']*\)$/\1=\"\2\"/" \
+    < ${iniFile} \
+    | sed -n -e "/^\[${iniSection}\]/,/^\s*\[/{/^[^;].*\=.*/p;}"`
+}
