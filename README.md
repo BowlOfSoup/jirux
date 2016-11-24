@@ -33,7 +33,7 @@ What does it do?
 ### jirux-create
 
 With this script you can create a **set** of subtasks, or just one task, for a given story.
-You can create your own set of tasks by creating a %tasksetname%.txt file and run the script with the -f command.
+You can create your own set of tasks by creating a %tasksetname% file and run the script with the -f command.
 If you do not provide any arguments for the script it will run interactively.
 
 ```
@@ -47,7 +47,7 @@ Usage: jirux-create [options]
     -o One subtask, give summary and create only one subtask.
 
 Example:
-    $ jirux-create -s TB-1111 -k TB -u your.username -t taskset1.txt
+    $ jirux-create -s TB-1111 -k TB -u your.username -t task/default
     $ jirux-create -s TB-1234 -o "One new subtask"
 
 If you incorrectly enter your password twice, you manually have to login into Jira again!
