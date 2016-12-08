@@ -43,7 +43,7 @@ Usage: jirux-create [options]
     -u Jira Username, If not given, script will take current username.
     -p Jira Password, If not given, script will ask.
     -k Projectkey, Key before - (dash) in Storynumber. If not given, script takes configured, or logged-in user.
-    -f File with a taskset, File within your current directory with defined tasks, one task per line.
+    -t File with a taskset,  File within the 'tasks' with defined tasks, one task per line.
     -o One subtask, give summary and create only one subtask.
 
 Example:
