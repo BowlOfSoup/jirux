@@ -17,7 +17,7 @@ function JiraCreateTasks()
     #
     # @var string
     ##
-    readonly -- TASK_DIR="task";
+    readonly -- TASK_DIR="tasks";
 
     ##
     # JSON API payload.
@@ -202,7 +202,7 @@ function JiraCreateTasks()
     {
         IFS=' ' read -r -a taskSetFiles <<< `ls ${SCRIPT_DIR}/${TASK_DIR}`
 
-        PS3='Which taskset do you want to create?'
+        PS3='Choose set of tasks you want to create: '
         select fileWithTaskSet in "${taskSetFiles[@]}"
         do
             if [ ! -f "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}" ]; then

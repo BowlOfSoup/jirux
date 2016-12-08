@@ -1,0 +1,12 @@
+[Implement] [API] {description}
+[Implement] [GUI] {description}
+[Impact Analysis] back-end
+[Impact Analysis] front-end
+[Dev-test] API
+[Dev-test] GUI (combination)
+QA/FD demo
+Testscript
+Test
+Demo to PO
+Merge back-end
+Merge front-end (mc-app/mc-ui)
