@@ -420,8 +420,8 @@ Usage: ${0} [options]
     -a Assign a subtask to the given username (or current logged-in user).
     -c Add a comment on a subtask.
 
-* If you do not provide any arguments, the script will be interactive. 
-* If you incorrectly enter your password twice, you manually have to login into Jira again! 
+Note:
+    If you incorrectly enter your password twice, you manually have to login into Jira again!
 
 ^ Thanks. BowlOfSoup.
         

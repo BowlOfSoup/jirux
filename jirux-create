@@ -13,6 +13,13 @@ function JiraCreateTasks()
     readonly -- SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )";
 
     ##
+    # Task directory.
+    #
+    # @var string
+    ##
+    readonly -- TASK_DIR="task";
+
+    ##
     # JSON API payload.
     #
     # @var string
@@ -32,20 +39,6 @@ function JiraCreateTasks()
     # @var string
     ##
     local -- jiraUrl='%JIRA_URL%/rest/api/2/issue/';
-    
-    ##
-    # File with list of default subtasks to create.
-    #
-    # @var array
-    ##
-    readonly -- DEFAULT_NORMAL_TASKS="taskset_default.txt";
-    
-    ##
-    # File with list of default subtasks for a bug to create.
-    #
-    # @var array
-    ##
-    readonly -- DEFAULT_BUG_TASKS="taskset_bug.txt";
     
     ##
     # Main method.
@@ -108,7 +101,7 @@ function JiraCreateTasks()
                 o)
                     singleTask="${OPTARG}";
                 ;;
-                f)
+                t)
                     fileWithTaskSet="${OPTARG}";
                 ;;
             esac
@@ -124,16 +117,16 @@ function JiraCreateTasks()
         fi
         
         if [ ! -z "${fileWithTaskSet}" ]; then
-            if [ ! -f "${fileWithTaskSet}" ]; then
+            if [ ! -f "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}" ]; then
                 outputError "Invalid file with tasks given.";
                 exit 1;
             fi
         
             # Replace carriage returns in given file.
-            sed -i 's/\r//g' "${fileWithTaskSet}";
+            sed -i 's/\r//g' "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}";
         fi
 
-        if [ -z ${apiOptions[password]} ]; then
+        if [ -z ${apiOptions[password]} ] ] ; then
             read -sp "Enter Password for ${apiOptions[userName]}: " apiOptions[password];
             echo;
         fi
@@ -179,7 +172,7 @@ function JiraCreateTasks()
             if [ -z "${fileWithTaskSet}" ]; then
                 chooseTaskSet;
             else
-                readarray taskSet < "${fileWithTaskSet}";
+                readarray taskSet < "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}";
             fi
 
             outputInfo "\nIndicate which tasks you want to create: [y/n]";
@@ -207,15 +200,18 @@ function JiraCreateTasks()
     ##
     function chooseTaskSet()
     {
-        fileWithTaskSet=$(readInput "Which taskset do you want to create?");
+        IFS=' ' read -r -a taskSetFiles <<< `ls ${SCRIPT_DIR}/${TASK_DIR}`
 
-        if [ ! -f "${fileWithTaskSet}" ]; then
-            outputError "Enter a valid file with a set of tasks.";
-            chooseTaskSet;
-        else
-            readarray taskSet < "${fileWithTaskSet}";
-        fi
-
+        PS3='Which taskset do you want to create?'
+        select fileWithTaskSet in "${taskSetFiles[@]}"
+        do
+            if [ ! -f "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}" ]; then
+                 outputError "Invalid taskset.";
+             else
+                 readarray taskSet < "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}";
+                 break;
+             fi
+        done
     }
 
     ##
@@ -247,23 +243,15 @@ Usage: ${0} [options]
     -u Jira Username, If not given, script will take current username.
     -p Jira Password, If not given, script will ask.
     -k Projectkey, Key before - (dash) in Storynumber. If not given, script guesses.
-    
-   Route 1:    
-    -t Taskset, enter the filename of a set of stories.
-    
-   Route 2:
-    -f File with a taskset, File within your current directory with defined tasks, one task per line.
-    
-   Route 3:    
+    -t File with a taskset, File within the ${SCRIPT_DIR}/${TASK_DIR} directory with defined tasks, one task per line.
     -o One subtask, give summary and create only one subtask.
 
 Example:
-    $ ${0} -s TB-1111 -k TB -u your.username -t 2
+    $ ${0} -s TB-1111 -k TB -u your.username -t default
     $ ${0} -s TB-1234 -o "One new subtask"
-    
-* If you do not provide any arguments, the script will be interactive. 
-* The tasksets are default and determined by the Scrum-masters.
-* If you incorrectly enter your password twice, you manually have to login into Jira again! 
+
+Note:
+    If you incorrectly enter your password twice, you manually have to login into Jira again!
 
 ^ Thanks. BowlOfSoup.
         
