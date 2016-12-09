@@ -126,7 +126,7 @@ function JiraCreateTasks()
             sed -i 's/\r//g' "${SCRIPT_DIR}/${TASK_DIR}/${fileWithTaskSet}";
         fi
 
-        if [ -z ${apiOptions[password]} ] ] ; then
+        if [ -z ${apiOptions[password]} ] ; then
             read -sp "Enter Password for ${apiOptions[userName]}: " apiOptions[password];
             echo;
         fi
