@@ -9,7 +9,7 @@ Scripts that currently work:
 
 Installation
 ------------
-`git clone https://github.com/Faiawuks/jirux.git ~/jirux`
+`git clone https://github.com/BowlOfSoup/jirux.git ~/jirux`
 
 ### Configuration
 You will need a `config.ini` file in the `jirux` directory which has the following format:
